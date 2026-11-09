@@ -5,7 +5,7 @@ export const TAXONOMY = {
     { id: "issue", label: "Issue" },
     { id: "improvement", label: "Improvement" },
   ],
-  areas: ["Case", "Gearbox", "Battery", "Electronics", "QA", "Decision"].map((id) => ({ id, label: id })),
+  areas: ["Case", "Gearbox", "Battery", "Electronics", "Software", "QA", "Decision"].map((id) => ({ id, label: id })),
   severities: SEVERITY_ORDER.map((id) => ({ id, label: id[0].toUpperCase() + id.slice(1) })),
   statuses: [
     { id: "open", label: "Open" },
@@ -34,6 +34,86 @@ export function emptyFilters() {
 
 export function statusLabel(status) {
   return TAXONOMY.statuses.find((item) => item.id === status)?.label || status || "";
+}
+
+export function hierarchyTabs() {
+  return [
+    { slug: "all", label: "All" },
+    ...TAXONOMY.areas.map((area) => ({ slug: area.id.toLowerCase(), label: area.label, area: area.id })),
+  ];
+}
+
+export function parseRoute(hash) {
+  const path = String(hash || "#/dashboard").replace(/^#/, "").replace(/^\//, "");
+  const issueMatch = path.match(/^issues\/(\d+)$/);
+  if (issueMatch) return { name: "issue", number: Number(issueMatch[1]) };
+  const hierarchyMatch = path.match(/^hierarchy(?:\/([a-z0-9-]+))?$/);
+  if (hierarchyMatch) {
+    const slug = (hierarchyMatch[1] || "all").toLowerCase();
+    const known = slug === "all" || TAXONOMY.areas.some((area) => area.id.toLowerCase() === slug);
+    return { name: "hierarchy", area: known ? slug : "all" };
+  }
+  if (path === "critical" || path.startsWith("critical/")) return { name: "critical" };
+  return { name: "dashboard" };
+}
+
+// An area tab keeps an issue when that issue, or any descendant, carries the
+// area. Ancestors stay so the parent chain is still visible.
+export function filterHierarchy(issues, slug) {
+  const tree = buildHierarchy(issues);
+  const tabs = hierarchyTabs();
+  const tab = tabs.find((item) => item.slug === String(slug || "all").toLowerCase()) || tabs[0];
+  const numbers = new Set();
+  for (const issue of issues) numbers.add(issue.number);
+  for (const root of tree.roots) numbers.add(root);
+  for (const [parent, kids] of tree.children) {
+    numbers.add(parent);
+    for (const kid of kids) numbers.add(kid);
+  }
+  if (tab.slug === "all") {
+    return {
+      slug: "all",
+      area: null,
+      visible: numbers,
+      direct: new Set(issues.map((issue) => issue.number)),
+      directCount: issues.length,
+      tree,
+    };
+  }
+  const byNumber = new Map(issues.map((issue) => [issue.number, issue]));
+  const memo = new Map();
+  const subtreeHas = (number, stack) => {
+    if (memo.has(number)) return memo.get(number);
+    if (stack.has(number)) return false;
+    const next = new Set(stack);
+    next.add(number);
+    let hit = hasArea(byNumber.get(number), tab.area);
+    for (const child of tree.children.get(number) || []) {
+      if (subtreeHas(child, next)) hit = true;
+    }
+    memo.set(number, hit);
+    return hit;
+  };
+  const visible = new Set();
+  for (const number of numbers) {
+    if (subtreeHas(number, new Set())) visible.add(number);
+  }
+  const direct = new Set(issues.filter((issue) => hasArea(issue, tab.area)).map((issue) => issue.number));
+  return { slug: tab.slug, area: tab.area, visible, direct, directCount: direct.size, tree };
+}
+
+export function hierarchyCounts(issues) {
+  const counts = { all: issues.length };
+  for (const area of TAXONOMY.areas) {
+    counts[area.id.toLowerCase()] = issues.filter((issue) => hasArea(issue, area.id)).length;
+  }
+  return counts;
+}
+
+function hasArea(issue, areaId) {
+  if (!issue || !areaId) return false;
+  const wanted = areaId.toLowerCase();
+  return (issue.areas || []).some((area) => String(area).toLowerCase() === wanted);
 }
 
 // Primary status is derived for display and filtering. It is not a stored field.
@@ -94,7 +174,10 @@ export function matchesFilters(issue, filters) {
     }
   }
   if (filters.types.size && !issue.types.some((type) => filters.types.has(type))) return false;
-  if (filters.areas.size && !issue.areas.some((area) => filters.areas.has(area))) return false;
+  if (filters.areas.size) {
+    const wanted = new Set([...filters.areas].map((area) => String(area).toLowerCase()));
+    if (!issue.areas.some((area) => wanted.has(String(area).toLowerCase()))) return false;
+  }
   if (filters.severities.size && !issue.severities.some((severity) => filters.severities.has(severity))) return false;
   if (filters.statuses.size && !filters.statuses.has(issue.status)) return false;
   return true;
@@ -440,4 +523,3 @@ function comparePath(left, right) {
   }
   return left.length - right.length;
 }
-
