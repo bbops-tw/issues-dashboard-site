@@ -210,7 +210,7 @@ textarea { min-height: 88px; resize: vertical; }
 
 .board {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 12px;
   align-items: start;
 }
@@ -223,6 +223,8 @@ textarea { min-height: 88px; resize: vertical; }
 .column h2 { display: flex; justify-content: space-between; margin-top: 0; }
 .column-blocked { box-shadow: inset 0 3px 0 #8d1d4a; }
 .column-in-progress { box-shadow: inset 0 3px 0 #1d76db; }
+.column-approved { box-shadow: inset 0 3px 0 #0e8a16; }
+.column-rejected { box-shadow: inset 0 3px 0 #d73a4a; }
 .column-closed { box-shadow: inset 0 3px 0 #6f675c; }
 .column-open { box-shadow: inset 0 3px 0 var(--green); }
 .card { display: grid; gap: 6px; margin-bottom: 8px; }
@@ -237,10 +239,12 @@ textarea { min-height: 88px; resize: vertical; }
   border: 1px solid var(--line);
   background: #fff;
 }
-.pill-critical, .pill-blocked, .pill-rejected { background: #f8e4e4; color: #7d0b0b; border-color: transparent; }
+.pill-critical, .pill-blocked { background: #f8e4e4; color: #7d0b0b; border-color: transparent; }
+.pill-rejected { background: #fde8eb; color: #d73a4a; border-color: transparent; }
 .pill-high { background: #fde7d4; color: #9a3412; border-color: transparent; }
 .pill-medium { background: #f8efd8; color: #8a5a12; border-color: transparent; }
-.pill-low, .pill-approved, .pill-improvement { background: var(--green-soft); color: var(--green); border-color: transparent; }
+.pill-low, .pill-improvement { background: var(--green-soft); color: var(--green); border-color: transparent; }
+.pill-approved { background: #e5f6ea; color: #0e8a16; border-color: transparent; }
 .pill-in-progress, .pill-issue { background: #e5eef8; color: #1d4e89; border-color: transparent; }
 .pill-closed { background: #ece8e1; color: #4a453d; border-color: transparent; }
 .pill-conflict { background: #f8e4e4; color: #7d0b0b; border-color: transparent; }
@@ -251,7 +255,8 @@ textarea { min-height: 88px; resize: vertical; }
 .tree > li { margin: 8px 0; }
 .repeat { color: var(--danger); }
 
-.chain { display: grid; gap: 8px; margin-bottom: 8px; }
+.chain-list { display: grid; gap: 12px; margin: 0 0 8px; padding: 0; list-style: none; }
+.chain { display: grid; gap: 8px; margin-bottom: 0; }
 .chain li {
   background: var(--green-soft);
   border: 1px solid #b7d4c6;
@@ -304,6 +309,10 @@ dd { margin: 0; }
 .markdown img { max-width: 100%; }
 .comments li { border-top: 1px solid var(--line); padding: 10px 0; }
 .comments header { color: var(--muted); font-size: 0.88rem; margin-bottom: 4px; }
+
+@media (max-width: 1200px) {
+  .board { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
 
 @media (max-width: 900px) {
   .topbar, .view-head, .detail-grid { display: block; }
