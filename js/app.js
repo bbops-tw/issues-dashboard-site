@@ -1,5 +1,5 @@
 import { createClient, loadComments, loadIssues } from "./github.js";
-import { decisionComment, emptyFilters } from "./model.js";
+import { decisionComment, emptyFilters, parseRoute } from "./model.js";
 import {
   paintLabels,
   renderCritical,
@@ -34,6 +34,7 @@ const state = {
   layout: localStorage.getItem(LAYOUT_KEY) === "board" ? "board" : "list",
   filters: loadFilters(),
   lastList: "dashboard",
+  hierarchyArea: "all",
   detail: null,
   detailError: "",
   notice: "",
@@ -148,7 +149,7 @@ function render() {
 }
 
 function renderMain(route) {
-  if (route.name === "hierarchy") return renderHierarchy(state.issues);
+  if (route.name === "hierarchy") return renderHierarchy(state.issues, route.area);
   if (route.name === "critical") return renderCritical(state.issues);
   if (route.name === "issue") {
     const issue = state.issues.find((item) => item.number === route.number) || null;
@@ -161,6 +162,7 @@ function renderMain(route) {
       notice: state.notice,
       pending: state.pending,
       lastList: state.lastList,
+      hierarchyArea: state.hierarchyArea,
     });
   }
   return renderDashboard({ issues: state.issues, filters: state.filters, layout: state.layout });
@@ -364,15 +366,11 @@ function rememberList(route) {
   if (route.name === "dashboard" || route.name === "hierarchy" || route.name === "critical") {
     state.lastList = route.name;
   }
+  if (route.name === "hierarchy") state.hierarchyArea = route.area || "all";
 }
 
 function currentRoute() {
-  const hash = (location.hash || "#/dashboard").replace(/^#/, "");
-  const issueMatch = hash.match(/^\/issues\/(\d+)$/);
-  if (issueMatch) return { name: "issue", number: Number(issueMatch[1]) };
-  if (hash.startsWith("/hierarchy")) return { name: "hierarchy" };
-  if (hash.startsWith("/critical")) return { name: "critical" };
-  return { name: "dashboard" };
+  return parseRoute(location.hash);
 }
 
 function currentClient() {
@@ -437,4 +435,3 @@ function saveFilters() {
 function insecurePage() {
   return location.protocol === "http:" && location.hostname !== "localhost" && location.hostname !== "127.0.0.1";
 }
-

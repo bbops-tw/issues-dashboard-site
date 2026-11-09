@@ -107,19 +107,35 @@ button:disabled { opacity: 0.6; cursor: wait; }
   padding: 0 22px;
 }
 
-nav { display: flex; gap: 4px; }
-nav a {
+.subbar nav { display: flex; gap: 4px; }
+.subbar nav a {
   display: inline-block;
   padding: 12px 12px 10px;
   text-decoration: none;
   color: var(--muted);
   border-bottom: 2px solid transparent;
 }
-nav a[aria-current="page"] {
+.subbar nav a[aria-current="page"] {
   color: var(--ink);
   border-bottom-color: var(--brass);
   font-weight: 650;
 }
+
+.subtabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 16px; }
+.subtabs a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  text-decoration: none;
+  color: var(--ink);
+  background: #fffdf8;
+}
+.subtabs a[aria-current="page"] { background: var(--ink); color: #fbf7f0; border-color: var(--ink); }
+.subtabs .count { font-variant-numeric: tabular-nums; font-size: 0.78rem; opacity: 0.75; }
+.tree-row.dim { opacity: 0.48; }
 
 main { padding: 22px; max-width: 1180px; }
 
@@ -298,4 +314,3 @@ dd { margin: 0; }
   .row > :nth-child(n + 3) { grid-column: 2; }
   main, .topbar, .subbar { padding-left: 14px; padding-right: 14px; }
 }
-

@@ -2,7 +2,9 @@ import { escapeHtml } from "./html.js";
 import {
   TAXONOMY,
   analyzeDependencies,
-  buildHierarchy,
+  filterHierarchy,
+  hierarchyCounts,
+  hierarchyTabs,
   matchesFilters,
   placeDependencies,
   statusLabel,
@@ -187,7 +189,7 @@ export function renderIssueResults(issues, filters, layout) {
   const shown = issues.filter((issue) => matchesFilters(issue, filters));
   const count = `<p id="result-count">${shown.length} of ${issues.length} shown</p>`;
   if (!issues.length) {
-    return `${count}<div class="empty"><p>No issues in this repository yet.</p><p>This site ships no issue data. Placeholder titles in the private repository start with <code>[Example]</code>.</p></div>`;
+    return `${count}<div class="empty"><p>No issues in this repository yet.</p><p>Run <code>scripts/seed.mjs</code> to add placeholder issues. Seeded titles start with <code>[Example]</code>.</p></div>`;
   }
   if (!shown.length) {
     return `${count}<div class="empty"><p>No issues match these filters.</p></div>`;
@@ -196,23 +198,47 @@ export function renderIssueResults(issues, filters, layout) {
   return count + body;
 }
 
-export function renderHierarchy(issues) {
-  const tree = buildHierarchy(issues);
+export function renderHierarchy(issues, areaSlug = "all") {
+  const filter = filterHierarchy(issues, areaSlug);
+  const counts = hierarchyCounts(issues);
   const byNumber = new Map(issues.map((issue) => [issue.number, issue]));
-  const cycles = tree.cycles.map((cycle) => (
-    `<p class="banner warn" data-cycle="${cycle.nodes.join(",")}">Parent cycle: ${cycleText(cycle.nodes)}</p>`
-  )).join("");
-  const nodes = tree.roots.map((number) => renderTreeNode(tree, byNumber, number, 0, new Set())).join("");
+  const cycles = filter.slug === "all"
+    ? filter.tree.cycles.map((cycle) => (
+      `<p class="banner warn" data-cycle="${cycle.nodes.join(",")}">Parent cycle: ${cycleText(cycle.nodes)}</p>`
+    )).join("")
+    : "";
+  const roots = filter.tree.roots.filter((number) => filter.visible.has(number));
+  const nodes = roots.map((number) => renderTreeNode(filter, byNumber, number, 0, new Set())).join("");
+  const tabs = hierarchyTabs().map((tab) => {
+    const current = tab.slug === filter.slug;
+    const href = tab.slug === "all" ? "#/hierarchy" : `#/hierarchy/${tab.slug}`;
+    const count = counts[tab.slug] ?? 0;
+    return `<a href="${href}" data-hierarchy-area="${tab.slug}" ${current ? 'aria-current="page"' : ""}>${escapeHtml(tab.label)} <span class="count">${count}</span></a>`;
+  }).join("");
+  let body;
+  if (!issues.length) {
+    body = '<div class="empty"><p>No issues to arrange.</p></div>';
+  } else if (filter.directCount === 0) {
+    body = `<div class="empty" data-empty-area="${escapeHtml(filter.slug)}"><p>No ${escapeHtml(filter.area)} issues yet.</p><p>An issue appears on this tab when it has the <code>area:${escapeHtml(filter.area)}</code> label. Parents stay in the tree when a child has the label.</p></div>`;
+  } else {
+    const note = filter.slug === "all"
+      ? ""
+      : `<p class="quiet">${filter.directCount} with <code>area:${escapeHtml(filter.area)}</code>. Dimmed rows are ancestors that do not have this area.</p>`;
+    body = `${note}${cycles || (filter.slug === "all" ? '<p class="quiet">No parent cycles.</p>' : "")}<ol class="tree">${nodes}</ol>`;
+  }
+  const summary = filter.slug === "all"
+    ? `${issues.length} issues, ${filter.tree.roots.length} at the root. Dashboard filters do not hide this tree.`
+    : "A row stays when it, or a child below it, has this area. Ancestors without the area are dimmed.";
   return `
     <section class="view">
       <div class="view-head">
         <div>
           <h1>Hierarchy</h1>
-          <p>Parent and sub-issue links from GitHub's sub-issues API. ${issues.length} issues, ${tree.roots.length} at the root. Dashboard filters do not hide this tree.</p>
+          <p>Parent and sub-issue links from GitHub's sub-issues API. ${summary}</p>
         </div>
       </div>
-      ${cycles || '<p class="quiet">No parent cycles.</p>'}
-      ${issues.length ? `<ol class="tree">${nodes}</ol>` : '<div class="empty"><p>No issues to arrange.</p></div>'}
+      <div class="subtabs" role="tablist" aria-label="Areas">${tabs}</div>
+      ${body}
     </section>
   `;
 }
@@ -264,13 +290,14 @@ export function renderCritical(issues) {
   `;
 }
 
-export function renderDetail({ issue, comments, loading, error, notice, pending, lastList }) {
+export function renderDetail({ issue, comments, loading, error, notice, pending, lastList, hierarchyArea = "all" }) {
+  const back = listHref(lastList, hierarchyArea);
   if (!issue) {
     return `
       <section class="view">
         <h1>Issue not in the loaded list</h1>
         <p>Refresh to read the repository again.</p>
-        <p><a href="#/${escapeHtml(lastList)}">Back to ${escapeHtml(BACK_LABEL[lastList] || "Dashboard")}</a></p>
+        <p><a href="${back}">Back to ${escapeHtml(BACK_LABEL[lastList] || "Dashboard")}</a></p>
       </section>
     `;
   }
@@ -284,7 +311,7 @@ export function renderDetail({ issue, comments, loading, error, notice, pending,
   const disabled = pending ? "disabled" : "";
   return `
     <article class="detail">
-      <p class="back"><a href="#/${escapeHtml(lastList)}">Back to ${escapeHtml(BACK_LABEL[lastList] || "Dashboard")}</a></p>
+      <p class="back"><a href="${back}">Back to ${escapeHtml(BACK_LABEL[lastList] || "Dashboard")}</a></p>
       <header class="detail-head">
         <p class="eyebrow">#${issue.number}</p>
         <h1>${escapeHtml(issue.title)}</h1>
@@ -398,21 +425,29 @@ function renderBoard(issues) {
   return `<div class="board">${columns}</div>`;
 }
 
-function renderTreeNode(tree, byNumber, number, depth, ancestors) {
+function renderTreeNode(filter, byNumber, number, depth, ancestors) {
+  if (!filter.visible.has(number)) return "";
   if (ancestors.has(number)) {
     return `<li class="repeat" data-number="${number}" data-depth="${depth}">#${number} repeats a parent already on this path</li>`;
   }
   const next = new Set(ancestors);
   next.add(number);
   const issue = byNumber.get(number);
-  const kids = tree.children.get(number) || [];
-  const body = issue
+  const dim = filter.slug !== "all" && !filter.direct.has(number);
+  const kids = (filter.tree.children.get(number) || []).filter((child) => filter.visible.has(child));
+  const row = issue
     ? `<a href="#/issues/${issue.number}"><span class="num">#${issue.number}</span> ${escapeHtml(issue.title)}</a> <span class="pills">${pills(issue)}</span>`
     : `<a href="#/issues/${number}">#${number}</a> <span class="quiet">not in the loaded list</span>`;
   const nested = kids.length
-    ? `<ol class="tree">${kids.map((child) => renderTreeNode(tree, byNumber, child, depth + 1, next)).join("")}</ol>`
+    ? `<ol class="tree">${kids.map((child) => renderTreeNode(filter, byNumber, child, depth + 1, next)).join("")}</ol>`
     : "";
-  return `<li data-number="${number}" data-depth="${depth}">${body}${nested}</li>`;
+  const dimAttr = dim ? ' data-dim="true"' : "";
+  return `<li data-number="${number}" data-depth="${depth}"${dimAttr}><div class="tree-row${dim ? " dim" : ""}">${row}</div>${nested}</li>`;
+}
+
+function listHref(lastList, hierarchyArea) {
+  if (lastList === "hierarchy" && hierarchyArea && hierarchyArea !== "all") return `#/hierarchy/${hierarchyArea}`;
+  return `#/${lastList || "dashboard"}`;
 }
 
 function renderGraph(layout, byNumber, analysis) {
@@ -569,4 +604,3 @@ function safeHttps(url) {
     return "";
   }
 }
-
