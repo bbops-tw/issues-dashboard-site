@@ -22,7 +22,7 @@ export function renderSignedOut({ owner, repo, error = "", insecure = false }) {
     <div class="gate">
       <header class="topbar">
         <div class="brand">
-          <span class="mark" aria-hidden="true">ID</span>
+          <span class="logo-lockup" role="img" aria-label="Bluegrass Bespoke"></span>
           <div>
             <strong>Issues dashboard</strong>
             <small>Private preview · no issues stored in this site</small>
@@ -31,6 +31,7 @@ export function renderSignedOut({ owner, repo, error = "", insecure = false }) {
       </header>
       <main class="gate-main">
         <section class="card-panel">
+          <span class="logo-mark" role="img" aria-label="Bluegrass Bespoke"></span>
           <p class="eyebrow">Sign in to load issues</p>
           <h1>Nothing is fetched until you sign in.</h1>
           <p>This site ships with zero issues. After you sign in it reads and updates issues in the GitHub repository you name, using that repository as the only data store.</p>
@@ -58,8 +59,13 @@ export function renderSignedOut({ owner, repo, error = "", insecure = false }) {
           </div>
         </section>
       </main>
+      ${renderFooter()}
     </div>
   `;
+}
+
+function renderFooter() {
+  return `<footer class="site-footer"><p>Bluegrass Bespoke Designs LLC</p></footer>`;
 }
 
 export function renderLoading({ owner, repo }) {
@@ -72,6 +78,7 @@ export function renderLoading({ owner, repo }) {
           <p>Reading ${escapeHtml(owner)}/${escapeHtml(repo)}. This site still stores no issue data of its own.</p>
         </section>
       </main>
+      ${renderFooter()}
     </div>
   `;
 }
@@ -91,6 +98,7 @@ export function renderLoadError({ owner, repo, message }) {
           </div>
         </section>
       </main>
+      ${renderFooter()}
     </div>
   `;
 }
@@ -127,6 +135,7 @@ export function renderShell({
         ${warnings.map((warning) => `<p class="banner warn">${escapeHtml(warning)}</p>`).join("")}
         ${mainHtml}
       </main>
+      ${renderFooter()}
     </div>
   `;
 }
@@ -136,7 +145,7 @@ function renderTop({ owner, repo, login, showActions, remaining }) {
   return `
     <header class="topbar">
       <div class="brand">
-        <span class="mark" aria-hidden="true">ID</span>
+        <span class="logo-lockup" role="img" aria-label="Bluegrass Bespoke"></span>
         <div>
           <strong>Issues dashboard</strong>
           <small>${escapeHtml(owner)}/${escapeHtml(repo)}</small>
