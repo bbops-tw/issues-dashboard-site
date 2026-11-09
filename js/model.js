@@ -11,9 +11,18 @@ export const TAXONOMY = {
     { id: "open", label: "Open" },
     { id: "in-progress", label: "In progress" },
     { id: "blocked", label: "Blocked" },
+    { id: "approved", label: "Approved" },
+    { id: "rejected", label: "Rejected" },
     { id: "closed", label: "Closed" },
   ],
 };
+
+export const STATUS_LABELS = [
+  "status:in-progress",
+  "status:blocked",
+  "status:approved",
+  "status:rejected",
+];
 
 const NODE_W = 168;
 const NODE_H = 58;
@@ -117,7 +126,7 @@ function hasArea(issue, areaId) {
 }
 
 // Primary status is derived for display and filtering. It is not a stored field.
-// Closed wins, then the status:blocked label, then status:in-progress, otherwise Open.
+// Closed wins, then Approved or Rejected, then Blocked, then In progress, otherwise Open.
 export function deriveIssue(raw) {
   const labels = Array.isArray(raw.labels) ? raw.labels : [];
   const names = labels.map((label) => label?.name).filter(Boolean);
@@ -126,8 +135,13 @@ export function deriveIssue(raw) {
   const severities = unique(names.filter((name) => name.startsWith("severity:")).map((name) => name.slice("severity:".length)));
   const severity = SEVERITY_ORDER.find((level) => severities.includes(level)) || severities[0] || null;
   const state = String(raw.state || "").toLowerCase() === "closed" ? "closed" : "open";
+  const approved = names.includes("status:approved");
+  const rejected = names.includes("status:rejected");
   let status = "open";
   if (state === "closed") status = "closed";
+  else if (approved && rejected) status = "conflict";
+  else if (approved) status = "approved";
+  else if (rejected) status = "rejected";
   else if (names.includes("status:blocked")) status = "blocked";
   else if (names.includes("status:in-progress")) status = "in-progress";
   const decisions = unique(names.filter((name) => name.startsWith("decision:")).map((name) => name.slice("decision:".length)));
@@ -181,6 +195,42 @@ export function matchesFilters(issue, filters) {
   if (filters.severities.size && !issue.severities.some((severity) => filters.severities.has(severity))) return false;
   if (filters.statuses.size && !filters.statuses.has(issue.status)) return false;
   return true;
+}
+
+export function decisionSteps(decision) {
+  if (decision !== "approved" && decision !== "rejected") {
+    throw new Error("decision must be approved or rejected");
+  }
+  const opposite = decision === "approved" ? "rejected" : "approved";
+  const removeStatus = STATUS_LABELS.filter((name) => name !== `status:${decision}`);
+  return [
+    { id: `add decision:${decision}`, action: "add", labels: [`decision:${decision}`] },
+    { id: `remove decision:${opposite}`, action: "remove", label: `decision:${opposite}` },
+    { id: `add status:${decision}`, action: "add", labels: [`status:${decision}`] },
+    ...removeStatus.map((label) => ({ id: `remove ${label}`, action: "remove", label })),
+    { id: "post decision comment", action: "comment" },
+  ];
+}
+
+export function decisionFailureMessage(stepId, detail) {
+  const tail = stepId === "post decision comment"
+    ? " Earlier label steps were saved. Retrying posts another decision comment."
+    : " Later steps, including the decision comment, did not run.";
+  return `Could not complete "${stepId}": ${detail}.${tail}`;
+}
+
+export async function applyDecision(client, { number, decision, note, login }) {
+  for (const step of decisionSteps(decision)) {
+    try {
+      if (step.action === "add") await client.addLabels(number, step.labels);
+      else if (step.action === "remove") await client.removeLabel(number, step.label);
+      else await client.addComment(number, decisionComment({ decision, note, login }));
+    } catch (error) {
+      const wrapped = new Error(decisionFailureMessage(step.id, error?.message || "request failed"));
+      wrapped.step = step.id;
+      throw wrapped;
+    }
+  }
 }
 
 export function decisionComment({ decision, note, login }) {
@@ -282,14 +332,14 @@ export function analyzeDependencies(issues) {
     number,
     (adj.get(number) || []).filter((next) => openSet.has(next)),
   ]));
-  const { chain, ties, approximate } = longestChain(open, openAdj);
+  const { chains, chain, ties, approximate } = longestChain(open, openAdj);
   const linked = new Set();
   for (const edge of edges) {
     linked.add(edge.blocker);
     linked.add(edge.blocked);
   }
   const isolated = issues.map((issue) => issue.number).filter((number) => !linked.has(number));
-  return { edges, cycles, chain, ties, approximate, isolated };
+  return { edges, cycles, chains, chain, ties, approximate, isolated };
 }
 
 export function placeDependencies(issues, analysis) {
@@ -364,8 +414,10 @@ export function placeDependencies(issues, analysis) {
     }
   });
   const chainEdges = new Set();
-  for (let i = 0; i < analysis.chain.length - 1; i += 1) {
-    chainEdges.add(`${analysis.chain[i]}->${analysis.chain[i + 1]}`);
+  for (const path of analysis.chains || [analysis.chain]) {
+    for (let i = 0; i < path.length - 1; i += 1) {
+      chainEdges.add(`${path[i]}->${path[i + 1]}`);
+    }
   }
   const cycleIds = new Set(analysis.cycles.map((cycle) => sccId.get(cycle.nodes[0])).filter((id) => id != null));
   return {
@@ -480,8 +532,7 @@ function cycleOrder(component, adj) {
 }
 
 function longestChain(nodes, adj) {
-  let chain = [];
-  let ties = 0;
+  let chains = [];
   let visits = 0;
   let approximate = false;
   const walk = (node, stack) => {
@@ -499,13 +550,9 @@ function longestChain(nodes, adj) {
       walk(next, stack);
     }
     if (!extended && stack.length > 1) {
-      if (stack.length > chain.length) {
-        chain = stack.slice();
-        ties = 1;
-      } else if (stack.length === chain.length) {
-        ties += 1;
-        if (comparePath(stack, chain) < 0) chain = stack.slice();
-      }
+      const found = stack.slice();
+      if (!chains.length || found.length > chains[0].length) chains = [found];
+      else if (found.length === chains[0].length) chains.push(found);
     }
     stack.pop();
   };
@@ -513,7 +560,8 @@ function longestChain(nodes, adj) {
     walk(start, []);
     if (approximate) break;
   }
-  return { chain, ties, approximate };
+  chains.sort(comparePath);
+  return { chains, chain: chains[0] || [], ties: chains.length, approximate };
 }
 
 function comparePath(left, right) {

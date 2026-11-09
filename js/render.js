@@ -164,7 +164,7 @@ export function renderDashboard({ issues, filters, layout }) {
       <div class="view-head">
         <div>
           <h1>Dashboard</h1>
-          <p>Issues and improvements in one list. Status comes from open/closed plus <code>status:in-progress</code> and <code>status:blocked</code>.</p>
+          <p>Issues and improvements in one list. Status is Closed, then Approved or Rejected, then Blocked, then In progress, otherwise Open.</p>
         </div>
         <div class="layout-toggle" role="group" aria-label="Layout">
           <button type="button" data-action="layout" data-layout="list" aria-pressed="${layout === "list"}">List</button>
@@ -252,16 +252,15 @@ export function renderCritical(issues) {
       `<p class="banner warn" data-cycle="${cycle.nodes.join(",")}">Cycle: ${cycleText(cycle.nodes)}</p>`
     )).join("")
     : '<p class="quiet">No cycles.</p>';
-  const chainHtml = analysis.chain.length
-    ? `<ol class="chain">${analysis.chain.map((number, index) => {
-        const issue = byNumber.get(number);
-        const title = issue ? issue.title : "Not in the loaded list";
-        return `<li data-chain-step="${number}"><a href="#/issues/${number}">#${number} ${escapeHtml(title)}</a>${index < analysis.chain.length - 1 ? '<span class="arrow-word">blocks</span>' : ""}</li>`;
-      }).join("")}</ol>`
+  const chains = analysis.chains || (analysis.chain.length ? [analysis.chain] : []);
+  const chainHtml = chains.length
+    ? `<p class="quiet" data-chain-count="${chains.length}">${chainSummary(chains)}</p><ol class="chain-list">${chains.map((path) => `
+        <li><ol class="chain" data-chain="${path.join(",")}">${path.map((number, index) => {
+          const issue = byNumber.get(number);
+          const title = issue ? issue.title : "Not in the loaded list";
+          return `<li data-chain-step="${number}"><a href="#/issues/${number}">#${number} ${escapeHtml(title)}</a>${index < path.length - 1 ? '<span class="arrow-word">blocks</span>' : ""}</li>`;
+        }).join("")}</ol></li>`).join("")}</ol>`
     : '<p class="empty">No open blocker chain. Nothing open is blocking another open issue.</p>';
-  const tie = analysis.ties > 1
-    ? `<p class="quiet">This is one of ${analysis.ties} open chains of this length. The one shown has the lowest issue numbers.</p>`
-    : "";
   const approximate = analysis.approximate
     ? '<p class="banner warn">The chain search stopped early. The highlighted chain is the longest one found, and a longer one may exist.</p>'
     : "";
@@ -281,10 +280,9 @@ export function renderCritical(issues) {
       </div>
       ${cycleHtml}
       ${approximate}
-      <h2>Longest open chain</h2>
+      <h2>${chains.length === 1 ? "Longest open chain" : "Longest open chains"}</h2>
       ${chainHtml}
-      ${tie}
-      ${layout.nodes.length ? `<p class="quiet">Green marks the open chain. A dashed red arrow stays inside a cycle.</p><div class="graph-scroll">${renderGraph(layout, byNumber, analysis)}</div>` : ""}
+      ${layout.nodes.length ? `<p class="quiet">Green marks every longest open chain. A dashed red arrow stays inside a cycle.</p><div class="graph-scroll">${renderGraph(layout, byNumber, analysis)}</div>` : ""}
       ${isolated}
     </section>
   `;
@@ -363,7 +361,7 @@ export function renderDetail({ issue, comments, loading, error, notice, pending,
           <section class="decision">
             <h2>Decision</h2>
             <p>Current: <strong>${escapeHtml(decisionText(issue.decision))}</strong></p>
-            <p class="quiet">Approve adds <code>decision:approved</code>, removes <code>decision:rejected</code>, and posts a comment. Reject does the opposite. The label is the source of truth.</p>
+            <p class="quiet">Approve adds <code>decision:approved</code> and <code>status:approved</code>, removes <code>decision:rejected</code> and any other status label, and posts a comment. Reject does the opposite. Other labels stay as they are.</p>
             <label for="decision-note">Optional note</label>
             <textarea id="decision-note" ${disabled}></textarea>
             <div class="row-actions">
@@ -451,7 +449,7 @@ function listHref(lastList, hierarchyArea) {
 }
 
 function renderGraph(layout, byNumber, analysis) {
-  const chain = new Set(analysis.chain);
+  const chain = new Set((analysis.chains || [analysis.chain]).flat());
   const paths = layout.edges.map((edge) => {
     const klass = edge.chain ? "edge chain" : edge.cycle ? "edge cycle" : "edge";
     return `<path class="${klass}" d="${edgePath(layout, edge)}" marker-end="url(#arrow)"></path>`;
@@ -582,6 +580,14 @@ function formatTime(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
   return `${date.toISOString().slice(0, 16).replace("T", " ")} UTC`;
+}
+
+function chainSummary(chains) {
+  const count = chains.length;
+  const length = chains[0].length;
+  const chainWord = count === 1 ? "chain" : "chains";
+  const issueWord = length === 1 ? "issue" : "issues";
+  return `${count} longest ${chainWord}, ${length} ${issueWord}${count === 1 ? "" : " each"}`;
 }
 
 function cycleText(nodes) {

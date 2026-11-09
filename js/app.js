@@ -1,5 +1,5 @@
 import { createClient, loadComments, loadIssues } from "./github.js";
-import { decisionComment, emptyFilters, parseRoute } from "./model.js";
+import { applyDecision, emptyFilters, parseRoute } from "./model.js";
 import {
   paintLabels,
   renderCritical,
@@ -294,23 +294,19 @@ async function onDecide(decision) {
   state.detailError = "";
   state.notice = "";
   render();
-  let labeled = false;
   try {
-    const client = currentClient();
-    await client.addLabels(route.number, [`decision:${decision}`]);
-    labeled = true;
-    const opposite = decision === "approved" ? "decision:rejected" : "decision:approved";
-    await client.removeLabel(route.number, opposite);
-    await client.addComment(route.number, decisionComment({ decision, note, login: state.login }));
+    await applyDecision(currentClient(), {
+      number: route.number,
+      decision,
+      note,
+      login: state.login,
+    });
     state.notice = `Recorded ${decision}.`;
     const result = await reload();
     if (!result.aborted && result.ok) await loadDetail(route.number);
   } catch (error) {
     if (error.name === "AbortError") return;
-    const base = explain(error);
-    state.detailError = labeled
-      ? `${base} The label change was saved. Retrying posts another decision comment.`
-      : base;
+    state.detailError = error.step ? error.message : explain(error);
   } finally {
     state.pending = false;
     if (state.token) render();
